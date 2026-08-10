@@ -1,0 +1,315 @@
+<style>
+  body { font-family: Arial, sans-serif; max-width: 760px; margin: 0 auto; padding: 16px; }
+  h2 { font-size: 18px; margin-bottom: 4px; }
+  .sub { font-size: 13px; color: #666; margin-bottom: 12px; }
+  input#filter, input#nhanvien { width: 100%; padding: 10px; font-size: 15px; box-sizing: border-box; margin-bottom: 10px; }
+  .row { border: 1px solid #ddd; border-radius: 6px; padding: 10px 12px; margin-bottom: 8px; }
+  .row .info { font-size: 14px; margin-bottom: 8px; }
+  .row .info b { font-size: 15px; }
+  .row .nguoinop { font-size: 12px; color: #444; background: #fff8e1; border-radius: 4px; padding: 4px 8px; display: inline-block; margin-bottom: 8px; }
+  .row textarea.ghichu { width: 100%; padding: 8px; font-size: 13px; box-sizing: border-box; margin-bottom: 8px; font-family: Arial, sans-serif; resize: vertical; }
+  .checklist { border: 1px solid #eee; border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; background: #fafbfb; }
+  .checklist .cl-title { font-size: 12px; font-weight: bold; color: #555; margin-bottom: 6px; }
+  .checklist label { display: flex; align-items: center; font-size: 12.5px; font-weight: normal; padding: 2px 0; }
+  .checklist input[type="checkbox"] { width: auto; margin: 0 6px 0 0; }
+  button.act { background: #1a73e8; color: #fff; border: none; border-radius: 4px; padding: 8px 12px; font-size: 13px; width: 100%; }
+  button.claim { background: #188038; color: #fff; border: none; border-radius: 4px; padding: 8px 12px; font-size: 13px; width: 100%; }
+  button.release { background: none; color: #c5221f; border: none; font-size: 11.5px; text-decoration: underline; padding: 4px 0; cursor: pointer; }
+  .locked { color: #888; font-size: 12.5px; font-style: italic; padding: 6px 0; }
+  #empty { color: #888; font-size: 14px; padding: 20px 0; text-align: center; }
+  #msg { margin-bottom: 10px; padding: 10px; border-radius: 4px; font-size: 14px; display:none; }
+  .ok { background: #e6f4ea; color: #137333; }
+  .err { background: #fce8e6; color: #c5221f; }
+  #count { font-weight: bold; }
+</style>
+
+<h2>Quầy 2 - Tiếp nhận, kiểm tra, scan hồ sơ + nhập ASC</h2>
+<div class="sub">Đang chờ xử lý: <span id="count">0</span> sinh viên</div>
+
+<input id="nhanvien" placeholder="Tên CV/CTV phụ trách (bắt buộc điền trước khi nhận xử lý)">
+<input id="filter" placeholder="Lọc theo MSSV hoặc tên...">
+<div id="msg"></div>
+<div id="list"></div>
+<div id="empty" style="display:none">Không có sinh viên nào đang chờ.</div>
+
+<script>
+const API_URL = "https://script.google.com/macros/s/AKfycbyAkoch5dGeF12mUJpC5swPGaGCfkwUpywant4OYSBQwJGySPFfANWToV67AHvbi2_D/exec";
+var currentQueue = [];
+var ghiChuStore = {};
+var thieuHoSoStore = {};
+var CLAIM_TIMEOUT_MS = 10 * 60 * 1000; // phải khớp với server (10 phút)
+
+var DANH_SACH_HO_SO = [
+  'Học bạ có công chứng',
+  'Giấy chứng nhận kết quả thi',
+  'Bằng tốt nghiệp THPT',
+  'Bằng tốt nghiệp Trung cấp/Cao đẳng',
+  'Bảng điểm tương ứng',
+  'Sơ yếu lý lịch',
+  'Giấy khai sinh',
+  'CCCD'
+];
+
+function myName() {
+  return document.getElementById('nhanvien').value.trim();
+}
+
+function isStale(claimAt) {
+  if (!claimAt) return true;
+  return (Date.now() - new Date(claimAt).getTime()) > CLAIM_TIMEOUT_MS;
+}
+
+function nguoiNopLabel(s) {
+  if (s.nguoiNop === 'nguoithan') {
+    return 'Nộp hồ sơ: Người thân' + (s.thongTinNguoiNop ? ' (' + s.thongTinNguoiNop + ')' : '');
+  }
+  return 'Nộp hồ sơ: Bản thân';
+}
+
+function showMsg(text, ok) {
+  var msg = document.getElementById('msg');
+  msg.style.display = 'block';
+  msg.className = ok ? 'ok' : 'err';
+  msg.textContent = text;
+  setTimeout(function () { msg.style.display = 'none'; }, 4000);
+}
+
+function buildUnclaimedRow(s) {
+  var div = document.createElement('div');
+  div.className = 'row';
+  div.id = 'row_' + s.mssv;
+  div.innerHTML =
+    '<div class="info"><b>' + s.hoten + '</b><br>MSSV: ' + s.mssv + ' &middot; ' + (s.nganh || '') + '</div>' +
+    '<div class="nguoinop">' + nguoiNopLabel(s) + '</div><br>';
+  var btn = document.createElement('button');
+  btn.className = 'claim';
+  btn.textContent = 'Nhận xử lý';
+  btn.onclick = function () { claimStudent(s.mssv, btn); };
+  div.appendChild(btn);
+  return div;
+}
+
+function buildLockedRow(s) {
+  var div = document.createElement('div');
+  div.className = 'row';
+  div.id = 'row_' + s.mssv;
+  div.innerHTML =
+    '<div class="info"><b>' + s.hoten + '</b><br>MSSV: ' + s.mssv + ' &middot; ' + (s.nganh || '') + '</div>' +
+    '<div class="nguoinop">' + nguoiNopLabel(s) + '</div>' +
+    '<div class="locked">Đang được <b>' + s.claimBy + '</b> xử lý...</div>';
+  return div;
+}
+
+function buildActiveRow(s) {
+  var div = document.createElement('div');
+  div.className = 'row';
+  div.id = 'row_' + s.mssv;
+  div.style.borderColor = '#188038';
+  div.style.borderWidth = '2px';
+
+  var infoDiv = document.createElement('div');
+  infoDiv.className = 'info';
+  infoDiv.innerHTML = '<b>' + s.hoten + '</b><br>MSSV: ' + s.mssv + ' &middot; ' + (s.nganh || '') + ' &middot; <span style="color:#188038">Bạn đang xử lý</span>';
+  div.appendChild(infoDiv);
+
+  var nguoiNopDiv = document.createElement('div');
+  nguoiNopDiv.className = 'nguoinop';
+  nguoiNopDiv.textContent = nguoiNopLabel(s);
+  div.appendChild(nguoiNopDiv);
+  div.appendChild(document.createElement('br'));
+
+  var clBox = document.createElement('div');
+  clBox.className = 'checklist';
+  var clTitle = document.createElement('div');
+  clTitle.className = 'cl-title';
+  clTitle.textContent = 'Thiếu loại hồ sơ bắt buộc (chỉ tick nếu sinh viên thiếu):';
+  clBox.appendChild(clTitle);
+  var savedThieu = thieuHoSoStore[s.mssv] || [];
+  DANH_SACH_HO_SO.forEach(function (item, idx) {
+    var lbl = document.createElement('label');
+    var cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.value = item;
+    cb.id = 'cb_' + s.mssv + '_' + idx;
+    cb.checked = savedThieu.indexOf(item) !== -1;
+    cb.addEventListener('change', function () {
+      var arr = thieuHoSoStore[s.mssv] || [];
+      if (cb.checked) { if (arr.indexOf(item) === -1) arr.push(item); }
+      else { arr = arr.filter(function (x) { return x !== item; }); }
+      thieuHoSoStore[s.mssv] = arr;
+    });
+    lbl.appendChild(cb);
+    lbl.appendChild(document.createTextNode(item));
+    clBox.appendChild(lbl);
+  });
+  div.appendChild(clBox);
+
+  var ghichuId = 'gc_' + s.mssv;
+  var ta = document.createElement('textarea');
+  ta.className = 'ghichu';
+  ta.id = ghichuId;
+  ta.rows = 3;
+  ta.placeholder = 'Ghi chú khác (nếu có)';
+  ta.value = ghiChuStore[s.mssv] || '';
+  ta.addEventListener('input', function () { ghiChuStore[s.mssv] = ta.value; });
+  div.appendChild(ta);
+
+  var btn = document.createElement('button');
+  btn.className = 'act';
+  btn.textContent = 'Đã xử lý xong - mời chờ chụp ảnh Quầy 3';
+  btn.onclick = function () { completeStudent(s.mssv, ghichuId, btn); };
+  div.appendChild(btn);
+
+  var releaseBtn = document.createElement('button');
+  releaseBtn.className = 'release';
+  releaseBtn.textContent = 'Huỷ nhận xử lý (nhường cho CTV khác)';
+  releaseBtn.onclick = function () { releaseStudent(s.mssv); };
+  div.appendChild(releaseBtn);
+
+  return div;
+}
+
+function render() {
+  var filter = document.getElementById('filter').value.trim().toLowerCase();
+  var list = document.getElementById('list');
+  var my = myName();
+  var filtered = (currentQueue || []).filter(function (s) {
+    if (!filter) return true;
+    return (s.mssv + ' ' + s.hoten).toLowerCase().indexOf(filter) !== -1;
+  });
+
+  document.getElementById('count').textContent = currentQueue.length;
+  document.getElementById('empty').style.display = filtered.length ? 'none' : 'block';
+
+  var seen = {};
+  filtered.forEach(function (s) {
+    seen[s.mssv] = true;
+    var claimStale = isStale(s.claimAt);
+    var isMine = s.claimBy && my && s.claimBy === my && !claimStale;
+    var existing = document.getElementById('row_' + s.mssv);
+
+    if (isMine && existing && existing.getAttribute('data-state') === 'active') {
+      return;
+    }
+
+    var newDiv;
+    if (isMine) {
+      newDiv = buildActiveRow(s);
+      newDiv.setAttribute('data-state', 'active');
+    } else if (s.claimBy && !claimStale) {
+      newDiv = buildLockedRow(s);
+      newDiv.setAttribute('data-state', 'locked');
+    } else {
+      newDiv = buildUnclaimedRow(s);
+      newDiv.setAttribute('data-state', 'unclaimed');
+    }
+
+    if (existing) existing.replaceWith(newDiv);
+    else list.appendChild(newDiv);
+  });
+
+  Array.prototype.slice.call(list.children).forEach(function (node) {
+    var mssv = node.id.replace('row_', '');
+    if (!seen[mssv]) {
+      node.remove();
+      delete ghiChuStore[mssv];
+      delete thieuHoSoStore[mssv];
+    }
+  });
+
+  var activeNodes = Array.prototype.filter.call(list.children, function (n) {
+    return n.getAttribute('data-state') === 'active';
+  });
+  for (var i = activeNodes.length - 1; i >= 0; i--) {
+    list.insertBefore(activeNodes[i], list.firstChild);
+  }
+}
+
+function claimStudent(mssv, btn) {
+  var my = myName();
+  if (!my) {
+    showMsg('Vui lòng nhập tên CTV trước khi nhận xử lý.', false);
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = 'Đang nhận...';
+
+  fetch(API_URL + "?action=quay2_claim", {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({ mssv: mssv, my: my })
+  })
+    .then(function (response) { return response.json(); })
+    .then(function (res) {
+      showMsg(res.message, res.success);
+      loadQueue();
+    })
+    .catch(function (err) {
+      showMsg('Lỗi hệ thống: ' + err.message, false);
+      btn.disabled = false;
+      btn.textContent = 'Nhận xử lý';
+    });
+}
+
+function releaseStudent(mssv) {
+  var my = myName();
+
+  fetch(API_URL + "?action=quay2_release", {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({ mssv: mssv, my: my })
+  })
+    .then(function (response) { return response.json(); })
+    .then(function (res) {
+      showMsg(res.message, res.success);
+      delete ghiChuStore[mssv];
+      delete thieuHoSoStore[mssv];
+      loadQueue();
+    })
+    .catch(function (err) {
+      showMsg('Lỗi hệ thống: ' + err.message, false);
+    });
+}
+
+function completeStudent(mssv, ghichuId, btn) {
+  btn.disabled = true;
+  btn.textContent = 'Đang xử lý...';
+  var ghichu = document.getElementById(ghichuId).value.trim();
+  var thieuHoSo = thieuHoSoStore[mssv] || [];
+  var my = myName();
+
+  fetch(API_URL + "?action=quay2_complete", {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({ mssv: mssv, ghichu: ghichu, thieuHoSo: thieuHoSo, my: my })
+  })
+    .then(function (response) { return response.json(); })
+    .then(function (res) {
+      showMsg(res.message, res.success);
+      delete ghiChuStore[mssv];
+      delete thieuHoSoStore[mssv];
+      loadQueue();
+    })
+    .catch(function (err) {
+      showMsg('Lỗi hệ thống: ' + err.message, false);
+      btn.disabled = false;
+      btn.textContent = 'Đã xử lý xong - mời chờ chụp ảnh Quầy 3';
+    });
+}
+
+function loadQueue() {
+  fetch(API_URL + "?action=quay2_getQueue")
+    .then(function (response) { return response.json(); })
+    .then(function (res) {
+      currentQueue = res || [];
+      render();
+    })
+    .catch(function (err) {
+      showMsg('Lỗi tải danh sách: ' + err.message, false);
+    });
+}
+document.getElementById('filter').addEventListener('input', render);
+
+loadQueue();
+setInterval(loadQueue, 5000);
+</script>
