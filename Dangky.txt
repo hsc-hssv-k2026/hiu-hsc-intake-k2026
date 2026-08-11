@@ -1,0 +1,194 @@
+<style>
+  body { font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 16px; }
+  h2 { font-size: 18px; }
+  label { display: block; margin-top: 12px; font-size: 14px; font-weight: bold; }
+  input, select { width: 100%; padding: 8px; font-size: 14px; box-sizing: border-box; margin-top: 4px; }
+  button { margin-top: 20px; width: 100%; padding: 12px; font-size: 15px; background: #1a73e8; color: #fff; border: none; border-radius: 4px; }
+  #msg { margin-top: 14px; padding: 10px; border-radius: 4px; font-size: 14px; }
+  .ok { background: #e6f4ea; color: #137333; }
+  .err { background: #fce8e6; color: #c5221f; }
+  .radio-group { margin-top: 6px; }
+  .radio-group label { display: inline-flex; align-items: center; font-weight: normal; font-size: 14px; margin-right: 20px; }
+  .radio-group input[type="radio"] { width: auto; margin: 0 6px 0 0; }
+</style>
+
+<h2>Đăng ký thông tin tân sinh viên - Khóa 2026</h2>
+<form id="f">
+  <label>Anh/chị nộp hồ sơ cho ai? *</label>
+  <div class="radio-group">
+    <label><input type="radio" name="nguoinop" value="banthan" checked required> Bản thân</label>
+    <label><input type="radio" name="nguoinop" value="nguoithan" required> Người thân</label>
+  </div>
+
+  <div id="nguoithanBox" style="display:none;">
+    <label>Thông tin người nộp hồ sơ (họ tên, quan hệ với sinh viên) *</label>
+    <input id="nguoithan_info" placeholder="VD: Nguyễn Văn A - Bố">
+  </div>
+
+  <label>Mã số sinh viên (MSSV) *</label>
+  <input id="mssv" required>
+
+  <label>Họ và tên *</label>
+  <input id="hoten" required>
+
+  <label>Mã số hồ sơ *</label>
+  <input id="mahoso" required value="HIU">
+
+  <label>Ngành trúng tuyển *</label>
+  <select id="nganh" required>
+    <option value="">-- Chọn ngành --</option>
+    <option value="Y khoa">Y khoa</option>
+    <option value="Y khoa (Tiếng Anh)">Y khoa (Tiếng Anh)</option>
+    <option value="Răng - Hàm - Mặt">Răng - Hàm - Mặt</option>
+    <option value="Răng - Hàm - Mặt (Tiếng Anh)">Răng - Hàm - Mặt (Tiếng Anh)</option>
+    <option value="Y học cổ truyền">Y học cổ truyền</option>
+    <option value="Dược học">Dược học</option>
+    <option value="Dược học (Tiếng Anh)">Dược học (Tiếng Anh)</option>
+    <option value="Kỹ thuật y sinh">Kỹ thuật y sinh</option>
+    <option value="Kỹ thuật phục hồi chức năng">Kỹ thuật phục hồi chức năng</option>
+    <option value="Kỹ thuật xét nghiệm y học">Kỹ thuật xét nghiệm y học</option>
+    <option value="Kỹ thuật hình ảnh y học">Kỹ thuật hình ảnh y học</option>
+    <option value="Điều dưỡng">Điều dưỡng</option>
+    <option value="Điều dưỡng (Tiếng Anh)">Điều dưỡng (Tiếng Anh)</option>
+    <option value="Hộ sinh">Hộ sinh</option>
+    <option value="Công nghệ thẩm mỹ">Công nghệ thẩm mỹ</option>
+    <option value="Dinh dưỡng">Dinh dưỡng</option>
+    <option value="Y tế công cộng">Y tế công cộng</option>
+    <option value="Kỹ thuật phục hình răng (*)">Kỹ thuật phục hình răng (*)</option>
+    <option value="Y học dự phòng (*)">Y học dự phòng (*)</option>
+    <option value="Digital Marketing">Digital Marketing</option>
+    <option value="Digital Marketing (Tiếng Anh)">Digital Marketing (Tiếng Anh)</option>
+    <option value="Thương mại điện tử">Thương mại điện tử</option>
+    <option value="Quản trị kinh doanh">Quản trị kinh doanh</option>
+    <option value="Quản trị sự kiện">Quản trị sự kiện</option>
+    <option value="Quản trị khách sạn">Quản trị khách sạn</option>
+    <option value="Quản trị dịch vụ du lịch và lữ hành">Quản trị dịch vụ du lịch và lữ hành</option>
+    <option value="Tài chính - Ngân hàng">Tài chính - Ngân hàng</option>
+    <option value="Kế toán">Kế toán</option>
+    <option value="Công nghệ tài chính">Công nghệ tài chính</option>
+    <option value="Kinh doanh quốc tế">Kinh doanh quốc tế</option>
+    <option value="Luật">Luật</option>
+    <option value="Luật kinh tế">Luật kinh tế</option>
+    <option value="Ngôn ngữ Anh">Ngôn ngữ Anh</option>
+    <option value="Ngôn ngữ Nhật">Ngôn ngữ Nhật</option>
+    <option value="Ngôn ngữ Trung Quốc">Ngôn ngữ Trung Quốc</option>
+    <option value="Ngôn ngữ Hàn Quốc">Ngôn ngữ Hàn Quốc</option>
+    <option value="Truyền thông đa phương tiện">Truyền thông đa phương tiện</option>
+    <option value="Quan hệ công chúng">Quan hệ công chúng</option>
+    <option value="Quan hệ quốc tế">Quan hệ quốc tế</option>
+    <option value="Tâm lý học">Tâm lý học</option>
+    <option value="Tâm lý học giáo dục">Tâm lý học giáo dục</option>
+    <option value="Quản lý giáo dục">Quản lý giáo dục</option>
+    <option value="Việt Nam học">Việt Nam học</option>
+    <option value="Kiến trúc">Kiến trúc</option>
+    <option value="Kỹ thuật cơ điện tử">Kỹ thuật cơ điện tử</option>
+    <option value="Logistics và quản lý chuỗi cung ứng">Logistics và quản lý chuỗi cung ứng</option>
+    <option value="Logistics và quản lý chuỗi cung ứng (Tiếng Anh)">Logistics và quản lý chuỗi cung ứng (Tiếng Anh)</option>
+    <option value="Quản lý công nghiệp">Quản lý công nghiệp</option>
+    <option value="Công nghệ thông tin">Công nghệ thông tin</option>
+    <option value="Thiết kế đồ họa">Thiết kế đồ họa</option>
+    <option value="Công nghệ sinh học">Công nghệ sinh học</option>
+  </select>
+
+  <label>Số CCCD *</label>
+  <input id="cccd" required maxlength="12" pattern="[0-9]{12}">
+
+  <label>Số điện thoại *</label>
+  <input id="sdt" required maxlength="11">
+
+  <label>Email cá nhân *</label>
+  <input id="email" type="email" required>
+
+  <label>Họ tên phụ huynh/người giám hộ *</label>
+  <input id="ph_hoten" required>
+
+  <label>SĐT phụ huynh/người giám hộ *</label>
+  <input id="ph_sdt" required maxlength="11">
+
+  <button type="submit">Gửi đăng ký</button>
+</form>
+<div id="msg" style="display:none"></div>
+
+<script>
+const API_URL = "https://script.google.com/macros/s/AKfycbyAkoch5dGeF12mUJpC5swPGaGCfkwUpywant4OYSBQwJGySPFfANWToV67AHvbi2_D/exec";
+const API_KEY = "HIU-K2026-QuayTiepNhan-7Xk2m9";
+var radios = document.querySelectorAll('input[name="nguoinop"]');
+var nguoithanBox = document.getElementById("nguoithanBox");
+var nguoithanInfo = document.getElementById("nguoithan_info");
+
+function toggleNguoiThan() {
+  var checked = document.querySelector('input[name="nguoinop"]:checked').value;
+  if (checked === "nguoithan") {
+    nguoithanBox.style.display = "block";
+    nguoithanInfo.setAttribute("required", "required");
+  } else {
+    nguoithanBox.style.display = "none";
+    nguoithanInfo.removeAttribute("required");
+  }
+}
+radios.forEach(function (r) { r.addEventListener("change", toggleNguoiThan); });
+toggleNguoiThan();
+
+var mahosoInput = document.getElementById("mahoso");
+mahosoInput.addEventListener("input", function () {
+  var digits = mahosoInput.value.toUpperCase().replace(/^HIU/, "").replace(/[^0-9]/g, "");
+  mahosoInput.value = "HIU" + digits;
+});
+mahosoInput.addEventListener("focus", function () {
+  var v = mahosoInput.value;
+  mahosoInput.setSelectionRange(v.length, v.length);
+});
+
+document.getElementById("f").addEventListener("submit", function (e) {
+  e.preventDefault();
+
+  var mahoso = document.getElementById("mahoso").value.trim();
+  if (!/^HIU[0-9]+$/.test(mahoso)) {
+    var msg = document.getElementById("msg");
+    msg.style.display = "block";
+    msg.className = "err";
+    msg.textContent = "Mã hồ sơ phải bắt đầu bằng HIU, theo sau là dãy số viết liền, không có khoảng trắng.";
+    return;
+  }
+
+  var nguoinop = document.querySelector('input[name="nguoinop"]:checked').value;
+  var data = {
+    nguoinop: nguoinop,
+    nguoithan_info: nguoinop === "nguoithan" ? nguoithanInfo.value.trim() : "",
+    mssv: document.getElementById("mssv").value.trim(),
+    hoten: document.getElementById("hoten").value.trim(),
+    mahoso: mahoso,
+    nganh: document.getElementById("nganh").value.trim(),
+    cccd: document.getElementById("cccd").value.trim(),
+    sdt: document.getElementById("sdt").value.trim(),
+    email: document.getElementById("email").value.trim(),
+    ph_hoten: document.getElementById("ph_hoten").value.trim(),
+    ph_sdt: document.getElementById("ph_sdt").value.trim(),
+    key: API_KEY
+  };
+  var msg = document.getElementById("msg");
+  msg.style.display = "none";
+
+  fetch(API_URL + "?action=dangky_submit", {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify(data)
+  })
+    .then(function (response) { return response.json(); })
+    .then(function (res) {
+      msg.style.display = "block";
+      msg.className = res.success ? "ok" : "err";
+      msg.textContent = res.message;
+      if (res.success) {
+        document.getElementById("f").reset();
+        document.getElementById("mahoso").value = "HIU";
+        toggleNguoiThan();
+      }
+    })
+    .catch(function (err) {
+      msg.style.display = "block";
+      msg.className = "err";
+      msg.textContent = "Lỗi hệ thống: " + err.message;
+    });
+});
+</script>
