@@ -136,7 +136,11 @@ mahosoInput.addEventListener("input", function () {
 });
 mahosoInput.addEventListener("focus", function () {
   var v = mahosoInput.value;
-  mahosoInput.setSelectionRange(v.length, v.length);
+  try {
+    mahosoInput.setSelectionRange(v.length, v.length);
+  } catch (err) {
+    // Một số trình duyệt di động không hỗ trợ dòng này ở vài thời điểm - bỏ qua, không ảnh hưởng gì
+  }
 });
 
 document.getElementById("f").addEventListener("submit", function (e) {
