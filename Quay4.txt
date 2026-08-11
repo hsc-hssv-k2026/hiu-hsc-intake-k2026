@@ -1,0 +1,85 @@
+<style>
+  body { font-family: Arial, sans-serif; max-width: 760px; margin: 0 auto; padding: 16px; }
+  h2 { font-size: 18px; margin-bottom: 4px; }
+  .sub { font-size: 13px; color: #666; margin-bottom: 12px; }
+  input#filter { width: 100%; padding: 10px; font-size: 15px; box-sizing: border-box; margin-bottom: 10px; }
+  .row { border: 1px solid #ddd; border-radius: 6px; padding: 10px 12px; margin-bottom: 8px; }
+  .row .info { font-size: 14px; }
+  .row .info b { font-size: 15px; }
+  .row .nguoinop { font-size: 12px; color: #444; background: #fff8e1; border-radius: 4px; padding: 4px 8px; display: inline-block; margin: 6px 0 2px; }
+  .row .time { font-size: 12px; color: #188038; margin-top: 4px; }
+  #empty { color: #888; font-size: 14px; padding: 20px 0; text-align: center; }
+  #count { font-weight: bold; }
+</style>
+
+<h2>Quầy 4 - Đã hoàn tất (chờ trả biên nhận)</h2>
+<div class="sub">Đã hoàn tất gần đây: <span id="count">0</span> sinh viên</div>
+
+<input id="filter" placeholder="Lọc theo MSSV hoặc tên...">
+<div id="list"></div>
+<div id="empty" style="display:none">Chưa có sinh viên nào hoàn tất.</div>
+
+<script>
+const API_URL = "https://script.google.com/macros/s/AKfycbyAkoch5dGeF12mUJpC5swPGaGCfkwUpywant4OYSBQwJGySPFfANWToV67AHvbi2_D/exec";
+var currentQueue = [];
+
+function formatTime(iso) {
+  if (!iso) return '';
+  var d = new Date(iso);
+  var hh = String(d.getHours()).padStart(2, '0');
+  var mm = String(d.getMinutes()).padStart(2, '0');
+  return hh + ':' + mm;
+}
+
+function nguoiNopLabel(s) {
+  if (s.nguoiNop === 'nguoithan') {
+    return 'Nộp hồ sơ: Người thân' + (s.thongTinNguoiNop ? ' (' + s.thongTinNguoiNop + ')' : '');
+  }
+  return 'Nộp hồ sơ: Bản thân';
+}
+
+function buildRow(s) {
+  var div = document.createElement('div');
+  div.className = 'row';
+  div.innerHTML =
+    '<div class="info"><b>' + s.hoten + '</b><br>MSSV: ' + s.mssv + ' &middot; ' + (s.nganh || '') + '</div>' +
+    '<div class="nguoinop">' + nguoiNopLabel(s) + '</div>' +
+    '<div class="time">Hoàn tất lúc ' + formatTime(s.hoanTatLuc) + '</div>';
+  return div;
+}
+
+function render() {
+  var filter = document.getElementById('filter').value.trim().toLowerCase();
+  var list = document.getElementById('list');
+  list.innerHTML = '';
+
+  var filtered = (currentQueue || []).filter(function (s) {
+    if (!filter) return true;
+    return (s.mssv + ' ' + s.hoten).toLowerCase().indexOf(filter) !== -1;
+  });
+
+  document.getElementById('count').textContent = currentQueue.length;
+  document.getElementById('empty').style.display = filtered.length ? 'none' : 'block';
+
+  filtered.forEach(function (s) {
+    list.appendChild(buildRow(s));
+  });
+}
+
+function loadQueue() {
+  fetch(API_URL + "?action=quay4_getQueue")
+    .then(function (response) { return response.json(); })
+    .then(function (res) {
+      currentQueue = res || [];
+      render();
+    })
+    .catch(function (err) {
+      console.error('Lỗi tải danh sách: ' + err.message);
+    });
+}
+
+document.getElementById('filter').addEventListener('input', render);
+
+loadQueue();
+setInterval(loadQueue, 5000);
+</script>
