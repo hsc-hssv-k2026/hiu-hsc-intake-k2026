@@ -52,6 +52,17 @@ var DANH_SACH_HO_SO = [
   { ten: 'Xác nhận công tác hoặc HĐLĐ', ghiChu: 'Nếu bằng Trung cấp không phải "Giỏi"' }
 ];
 
+// Gửi request, nếu thất bại (mất mạng tạm thời) thì tự thử lại 1 lần sau 2 giây
+function fetchWithRetry(url, options) {
+  return fetch(url, options).catch(function () {
+    return new Promise(function (resolve) {
+      setTimeout(resolve, 2000);
+    }).then(function () {
+      return fetch(url, options);
+    });
+  });
+}
+
 function myName() {
   return document.getElementById('nhanvien').value.trim();
 }
@@ -73,7 +84,7 @@ function showMsg(text, ok) {
   msg.style.display = 'block';
   msg.className = ok ? 'ok' : 'err';
   msg.textContent = text;
-  setTimeout(function () { msg.style.display = 'none'; }, 4000);
+  setTimeout(function () { msg.style.display = 'none'; }, 5000);
 }
 
 function buildUnclaimedRow(s) {
@@ -221,6 +232,8 @@ function render() {
     }
   });
 
+  // Chỉ sắp xếp lại thứ tự dòng khi CTV KHÔNG đang gõ chữ/tick trong danh sách,
+  // tránh làm mất focus khi đang thao tác ghi chú/checklist
   var focusedInList = document.activeElement && list.contains(document.activeElement);
   if (!focusedInList) {
     var activeNodes = Array.prototype.filter.call(list.children, function (n) {
@@ -241,7 +254,7 @@ function claimStudent(mssv, btn) {
   btn.disabled = true;
   btn.textContent = 'Đang nhận...';
 
-  fetch(API_URL + "?action=quay2_claim", {
+  fetchWithRetry(API_URL + "?action=quay2_claim", {
     method: "POST",
     headers: { "Content-Type": "text/plain;charset=utf-8" },
     body: JSON.stringify({ mssv: mssv, my: my, key: API_KEY })
@@ -252,16 +265,17 @@ function claimStudent(mssv, btn) {
       loadQueue();
     })
     .catch(function (err) {
-      showMsg('Lỗi hệ thống: ' + err.message, false);
+      showMsg('Không nhận được phản hồi (mạng yếu). Hồ sơ có thể đã được xử lý - vui lòng tải lại trang để kiểm tra trước khi bấm lại.', false);
       btn.disabled = false;
       btn.textContent = 'Nhận xử lý';
+      loadQueue();
     });
 }
 
 function releaseStudent(mssv) {
   var my = myName();
 
-  fetch(API_URL + "?action=quay2_release", {
+  fetchWithRetry(API_URL + "?action=quay2_release", {
     method: "POST",
     headers: { "Content-Type": "text/plain;charset=utf-8" },
     body: JSON.stringify({ mssv: mssv, my: my, key: API_KEY })
@@ -274,7 +288,8 @@ function releaseStudent(mssv) {
       loadQueue();
     })
     .catch(function (err) {
-      showMsg('Lỗi hệ thống: ' + err.message, false);
+      showMsg('Không nhận được phản hồi (mạng yếu). Vui lòng tải lại trang để kiểm tra trước khi thử lại.', false);
+      loadQueue();
     });
 }
 
@@ -285,7 +300,7 @@ function completeStudent(mssv, ghichuId, btn) {
   var thieuHoSo = thieuHoSoStore[mssv] || [];
   var my = myName();
 
-  fetch(API_URL + "?action=quay2_complete", {
+  fetchWithRetry(API_URL + "?action=quay2_complete", {
     method: "POST",
     headers: { "Content-Type": "text/plain;charset=utf-8" },
     body: JSON.stringify({ mssv: mssv, ghichu: ghichu, thieuHoSo: thieuHoSo, my: my, key: API_KEY })
@@ -298,21 +313,22 @@ function completeStudent(mssv, ghichuId, btn) {
       loadQueue();
     })
     .catch(function (err) {
-      showMsg('Lỗi hệ thống: ' + err.message, false);
+      showMsg('Không nhận được phản hồi (mạng yếu). Hồ sơ có thể đã được xử lý xong - vui lòng tải lại trang để kiểm tra trước khi bấm lại.', false);
       btn.disabled = false;
       btn.textContent = 'Đã xử lý xong - mời chờ chụp ảnh Quầy 3';
+      loadQueue();
     });
 }
 
 function loadQueue() {
-  fetch(API_URL + "?action=quay2_getQueue&key=" + encodeURIComponent(API_KEY))
+  fetchWithRetry(API_URL + "?action=quay2_getQueue&key=" + encodeURIComponent(API_KEY))
     .then(function (response) { return response.json(); })
     .then(function (res) {
       currentQueue = res || [];
       render();
     })
     .catch(function (err) {
-      showMsg('Lỗi tải danh sách: ' + err.message, false);
+      // Lỗi tải danh sách tạm thời (mạng chậm) - bỏ qua, lần làm mới tiếp theo (5 giây sau) sẽ tự thử lại
     });
 }
 document.getElementById('filter').addEventListener('input', render);
