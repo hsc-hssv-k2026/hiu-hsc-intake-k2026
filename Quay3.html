@@ -31,17 +31,6 @@ const API_KEY = "HIU-K2026-QuayTiepNhan-7Xk2m9";
 var currentQueue = [];
 var ghiChuStore = {};
 
-// Gửi request, nếu thất bại (mất mạng tạm thời) thì tự thử lại 1 lần sau 2 giây
-function fetchWithRetry(url, options) {
-  return fetch(url, options).catch(function () {
-    return new Promise(function (resolve) {
-      setTimeout(resolve, 2000);
-    }).then(function () {
-      return fetch(url, options);
-    });
-  });
-}
-
 function queueKey(q) {
   return (q || []).map(function (s) { return s.mssv; }).sort().join(',');
 }
@@ -92,7 +81,7 @@ function showMsg(text, ok) {
   msg.style.display = 'block';
   msg.className = ok ? 'ok' : 'err';
   msg.textContent = text;
-  setTimeout(function () { msg.style.display = 'none'; }, 5000);
+  setTimeout(function () { msg.style.display = 'none'; }, 4000);
 }
 
 function completeStudent(mssv, ghichuId, btn) {
@@ -101,7 +90,7 @@ function completeStudent(mssv, ghichuId, btn) {
   var ghichu = document.getElementById(ghichuId).value.trim();
   var nhanvien = document.getElementById('nhanvien').value.trim();
 
-  fetchWithRetry(API_URL + "?action=quay3_complete", {
+  fetch(API_URL + "?action=quay3_complete", {
     method: "POST",
     headers: { "Content-Type": "text/plain;charset=utf-8" },
     body: JSON.stringify({ mssv: mssv, ghichu: ghichu, nhanvien: nhanvien, key: API_KEY })
@@ -113,22 +102,35 @@ function completeStudent(mssv, ghichuId, btn) {
       loadQueue(true);
     })
     .catch(function (err) {
-      showMsg('Không nhận được phản hồi (mạng yếu). Hồ sơ có thể đã hoàn tất - vui lòng tải lại trang để kiểm tra trước khi bấm lại.', false);
+      showMsg('Lỗi hệ thống: ' + err.message, false);
       btn.disabled = false;
       btn.textContent = 'Đã chụp - trả biên nhận (hoàn tất)';
-      loadQueue(true);
     });
 }
 
 var lastKey = '';
 
 function loadQueue(forceRender) {
-  fetchWithRetry(API_URL + "?action=quay3_getQueue&key=" + encodeURIComponent(API_KEY))
+  fetch(API_URL + "?action=quay3_getQueue&key=" + encodeURIComponent(API_KEY))
     .then(function (response) { return response.json(); })
     .then(function (res) {
       var newQueue = res || [];
       var newKey = queueKey(newQueue);
       currentQueue = newQueue;
+
+      var list = document.getElementById('list');
+      var dangGoGhiChu = document.activeElement &&
+        list.contains(document.activeElement) &&
+        document.activeElement.tagName === 'TEXTAREA';
+
+      if (dangGoGhiChu && !forceRender) {
+        // CTV đang gõ ghi chú -> chỉ cập nhật số đếm, KHÔNG rebuild danh sách
+        // để tránh mất con trỏ. Không cập nhật lastKey, để lần load kế tiếp
+        // (sau khi CTV rời khỏi ô) vẫn phát hiện được thay đổi và render lại.
+        document.getElementById('count').textContent = currentQueue.length;
+        return;
+      }
+
       if (forceRender || newKey !== lastKey) {
         lastKey = newKey;
         render();
@@ -137,7 +139,7 @@ function loadQueue(forceRender) {
       }
     })
     .catch(function (err) {
-      // Lỗi tải danh sách tạm thời (mạng chậm) - bỏ qua, lần làm mới tiếp theo (5 giây sau) sẽ tự thử lại
+      showMsg('Lỗi tải danh sách: ' + err.message, false);
     });
 }
 
