@@ -7,7 +7,9 @@
   .row .info { font-size: 14px; }
   .row .info b { font-size: 15px; }
   .row .muted { color: #888; font-size: 12px; }
+  .row .actions { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
   button.act { background: #1a73e8; color: #fff; border: none; border-radius: 4px; padding: 8px 12px; font-size: 13px; white-space: nowrap; }
+  button.skip { background: none; color: #c5221f; border: 1px solid #c5221f; border-radius: 4px; padding: 6px 12px; font-size: 12px; white-space: nowrap; cursor: pointer; }
   #empty { color: #888; font-size: 14px; padding: 20px 0; text-align: center; }
   #msg { margin-bottom: 10px; padding: 10px; border-radius: 4px; font-size: 14px; display:none; }
   .ok { background: #e6f4ea; color: #137333; }
@@ -45,11 +47,23 @@ function render() {
     div.innerHTML =
       '<div class="info"><b>' + s.hoten + '</b><br>MSSV: ' + s.mssv +
       ' &middot; ' + (s.nganh || '') + '</div>';
+
+    var actions = document.createElement('div');
+    actions.className = 'actions';
+
     var btn = document.createElement('button');
     btn.className = 'act';
     btn.textContent = 'Xác nhận - mời qua Quầy 2';
     btn.onclick = function () { confirmStudent(s.mssv, btn); };
-    div.appendChild(btn);
+    actions.appendChild(btn);
+
+    var skipBtn = document.createElement('button');
+    skipBtn.className = 'skip';
+    skipBtn.textContent = 'Bỏ qua';
+    skipBtn.onclick = function () { skipStudent(s.mssv, s.hoten, skipBtn); };
+    actions.appendChild(skipBtn);
+
+    div.appendChild(actions);
     list.appendChild(div);
   });
 }
@@ -81,6 +95,31 @@ function confirmStudent(mssv, btn) {
       showMsg('Lỗi hệ thống: ' + err.message, false);
       btn.disabled = false;
       btn.textContent = 'Xác nhận - mời qua Quầy 2';
+    });
+}
+
+function skipStudent(mssv, hoten, btn) {
+  var confirmed = confirm('Bạn chắc chắn muốn bỏ qua sinh viên "' + hoten + '" (MSSV: ' + mssv + ')?\nHồ sơ sẽ không xuất hiện lại trong hàng đợi.');
+  if (!confirmed) return;
+
+  btn.disabled = true;
+  btn.textContent = 'Đang xử lý...';
+  var nhanvien = document.getElementById('nhanvien').value.trim();
+
+  fetch(API_URL + "?action=quay1_boqua", {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({ mssv: mssv, nhanvien: nhanvien, key: API_KEY })
+  })
+    .then(function (response) { return response.json(); })
+    .then(function (res) {
+      showMsg(res.message, res.success);
+      loadQueue();
+    })
+    .catch(function (err) {
+      showMsg('Lỗi hệ thống: ' + err.message, false);
+      btn.disabled = false;
+      btn.textContent = 'Bỏ qua';
     });
 }
 
