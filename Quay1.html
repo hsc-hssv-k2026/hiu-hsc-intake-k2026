@@ -31,6 +31,17 @@ const API_URL = "https://script.google.com/macros/s/AKfycbyAkoch5dGeF12mUJpC5swP
 const API_KEY = "HIU-K2026-QuayTiepNhan-7Xk2m9";
 var currentQueue = [];
 
+// Gửi request, nếu thất bại (mất mạng tạm thời) thì tự thử lại 1 lần sau 2 giây
+function fetchWithRetry(url, options) {
+  return fetch(url, options).catch(function () {
+    return new Promise(function (resolve) {
+      setTimeout(resolve, 2000);
+    }).then(function () {
+      return fetch(url, options);
+    });
+  });
+}
+
 function render() {
   var filter = document.getElementById('filter').value.trim().toLowerCase();
   var list = document.getElementById('list');
@@ -73,7 +84,7 @@ function showMsg(text, ok) {
   msg.style.display = 'block';
   msg.className = ok ? 'ok' : 'err';
   msg.textContent = text;
-  setTimeout(function () { msg.style.display = 'none'; }, 4000);
+  setTimeout(function () { msg.style.display = 'none'; }, 5000);
 }
 
 function confirmStudent(mssv, btn) {
@@ -81,7 +92,7 @@ function confirmStudent(mssv, btn) {
   btn.textContent = 'Đang xử lý...';
   var nhanvien = document.getElementById('nhanvien').value.trim();
 
-  fetch(API_URL + "?action=quay1_confirm", {
+  fetchWithRetry(API_URL + "?action=quay1_confirm", {
     method: "POST",
     headers: { "Content-Type": "text/plain;charset=utf-8" },
     body: JSON.stringify({ mssv: mssv, nhanvien: nhanvien, key: API_KEY })
@@ -92,9 +103,10 @@ function confirmStudent(mssv, btn) {
       loadQueue();
     })
     .catch(function (err) {
-      showMsg('Lỗi hệ thống: ' + err.message, false);
+      showMsg('Không nhận được phản hồi (mạng yếu). Hồ sơ có thể đã được xử lý - vui lòng tải lại trang để kiểm tra trước khi bấm lại.', false);
       btn.disabled = false;
       btn.textContent = 'Xác nhận - mời qua Quầy 2';
+      loadQueue();
     });
 }
 
@@ -106,7 +118,7 @@ function skipStudent(mssv, hoten, btn) {
   btn.textContent = 'Đang xử lý...';
   var nhanvien = document.getElementById('nhanvien').value.trim();
 
-  fetch(API_URL + "?action=quay1_boqua", {
+  fetchWithRetry(API_URL + "?action=quay1_boqua", {
     method: "POST",
     headers: { "Content-Type": "text/plain;charset=utf-8" },
     body: JSON.stringify({ mssv: mssv, nhanvien: nhanvien, key: API_KEY })
@@ -117,21 +129,22 @@ function skipStudent(mssv, hoten, btn) {
       loadQueue();
     })
     .catch(function (err) {
-      showMsg('Lỗi hệ thống: ' + err.message, false);
+      showMsg('Không nhận được phản hồi (mạng yếu). Hồ sơ có thể đã được xử lý - vui lòng tải lại trang để kiểm tra trước khi bấm lại.', false);
       btn.disabled = false;
       btn.textContent = 'Bỏ qua';
+      loadQueue();
     });
 }
 
 function loadQueue() {
-  fetch(API_URL + "?action=layDanhSachQuay1&key=" + encodeURIComponent(API_KEY))
+  fetchWithRetry(API_URL + "?action=layDanhSachQuay1&key=" + encodeURIComponent(API_KEY))
     .then(function (response) { return response.json(); })
     .then(function (res) {
       currentQueue = res || [];
       render();
     })
     .catch(function (err) {
-      showMsg('Lỗi tải danh sách: ' + err.message, false);
+      // Lỗi tải danh sách tạm thời (mạng chậm) - bỏ qua, lần làm mới tiếp theo (5 giây sau) sẽ tự thử lại
     });
 }
 
