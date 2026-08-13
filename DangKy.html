@@ -119,14 +119,20 @@ var nguoithanBox = document.getElementById("nguoithanBox");
 var nguoithanInfo = document.getElementById("nguoithan_info");
 var submitBtn = document.getElementById("submitBtn");
 
-// Gửi request, nếu thất bại (mất mạng tạm thời) thì tự thử lại 1 lần sau 2 giây
+// Gửi request có GIỚI HẠN THỜI GIAN CHỜ (20 giây) - nếu quá lâu không có phản hồi
+// (mạng treo, máy bị khóa màn hình...) sẽ tự huỷ và báo lỗi thay vì kẹt mãi mãi.
+// Nếu lần đầu thất bại, tự động thử lại thêm 1 lần sau 2 giây.
 function fetchWithRetry(url, options) {
-  return fetch(url, options).catch(function () {
+  function attempt() {
+    var controller = new AbortController();
+    var timer = setTimeout(function () { controller.abort(); }, 50000);
+    var opts = Object.assign({}, options, { signal: controller.signal });
+    return fetch(url, opts).finally(function () { clearTimeout(timer); });
+  }
+  return attempt().catch(function () {
     return new Promise(function (resolve) {
       setTimeout(resolve, 2000);
-    }).then(function () {
-      return fetch(url, options);
-    });
+    }).then(attempt);
   });
 }
 
@@ -210,7 +216,7 @@ document.getElementById("f").addEventListener("submit", function (e) {
       }
     })
     .catch(function (err) {
-      showMsg("Không nhận được phản hồi từ hệ thống (có thể do mạng yếu). Hồ sơ CÓ THỂ đã được lưu - vui lòng báo CTV Quầy 1 kiểm tra MSSV " + data.mssv + " trước khi gửi lại, để tránh đăng ký trùng.", "err");
+      showMsg("Không nhận được phản hồi từ hệ thống (có thể do mạng yếu hoặc quá thời gian chờ). Hồ sơ CÓ THỂ đã được lưu - vui lòng báo CTV Quầy 1 kiểm tra MSSV " + data.mssv + " trước khi gửi lại, để tránh đăng ký trùng.", "err");
     })
     .finally(function () {
       submitBtn.disabled = false;
