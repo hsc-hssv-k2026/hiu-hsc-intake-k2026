@@ -1,226 +1,595 @@
-<style>
-  body { font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 16px; }
-  h2 { font-size: 18px; }
-  label { display: block; margin-top: 12px; font-size: 14px; font-weight: bold; }
-  input, select { width: 100%; padding: 8px; font-size: 14px; box-sizing: border-box; margin-top: 4px; }
-  button { margin-top: 20px; width: 100%; padding: 12px; font-size: 15px; background: #1a73e8; color: #fff; border: none; border-radius: 4px; }
-  button:disabled { background: #9aa0a6; }
-  #msg { margin-top: 14px; padding: 10px; border-radius: 4px; font-size: 14px; }
-  .ok { background: #e6f4ea; color: #137333; }
-  .err { background: #fce8e6; color: #c5221f; }
-  .warn { background: #fef7e0; color: #b06000; }
-  .radio-group { margin-top: 6px; }
-  .radio-group label { display: inline-flex; align-items: center; font-weight: normal; font-size: 14px; margin-right: 20px; }
-  .radio-group input[type="radio"] { width: auto; margin: 0 6px 0 0; }
-</style>
+/**
+ * HỆ THỐNG TIẾP NHẬN HỒ SƠ TÂN SINH VIÊN - MÔ HÌNH 3 QUẦY (HÀNG ĐỢI)
+ * ---------------------------------------------------------------
+ * >>> CẬP NHẬT 06/10/2026 - CHẾ ĐỘ 1 QUẦY <<<
+ * Từ ngày 06/10/2026 không mở Quầy 1, 2, 3 nữa. Sinh viên chỉ cần
+ * gửi form ĐĂNG KÝ là hồ sơ được ghi nhận HOÀN TẤT ngay (TrangThai =
+ * HOAN_TAT, HoanTatLuc = giờ đăng ký, 3 cột NhanVien_Quay1/2/3 ghi
+ * "TU_DONG_1_QUAY" để phân biệt với hồ sơ đi qua đủ 3 quầy).
+ * Hồ sơ đăng ký TRƯỚC 06/10 giữ nguyên, không bị thay đổi.
+ * Muốn quay lại mô hình 3 quầy: đổi CHE_DO_1_QUAY = false rồi Deploy.
+ * ---------------------------------------------------------------
+ * Sinh viên chỉ di chuyển qua 3 điểm: Quầy 1 -> Quầy 2 -> Quầy 3.
+ * Hồ sơ giấy sau khi nộp ở Quầy 2 chỉ luân chuyển NỘI BỘ giữa CTV,
+ * sinh viên không cầm hồ sơ đi giữa các quầy.
+ *
+ * Mỗi quầy có 1 màn hình DANH SÁCH (không phải tra 1 MSSV như bản cũ),
+ * tự làm mới mỗi 5 giây, có nút xử lý cho từng dòng.
+ *
+ * Quầy 1 có thêm nút "Bỏ qua" để CTV đánh dấu hồ sơ không tiếp tục
+ * quy trình (không hiện lại ở Quầy 1 hay Quầy 2), có xác nhận trước
+ * khi thực hiện để tránh bấm nhầm.
+ *
+ * Quầy 2 có thêm cơ chế "Nhận xử lý" để nhiều CTV dùng chung 1 link
+ * không bị giẫm chân lên nhau: CTV phải bấm nhận trước khi được thao tác
+ * trên 1 sinh viên; nhận tự hết hạn sau 24 giờ nếu quên huỷ.
+ *
+ * Quầy 4: màn hình chỉ xem, hiển thị các hồ sơ Quầy 3 đã hoàn tất.
+ *
+ * BẢO MẬT: mọi request (GET lẫn POST) đều phải kèm đúng API_SECRET,
+ * nếu không sẽ bị từ chối ngay, không xử lý gì thêm.
+ *
+ * CHỐNG TRÙNG: dangky_submit dùng LockService để đảm bảo không có
+ * 2 lượt đăng ký cùng MSSV được ghi trùng nhau khi gửi gần như cùng lúc.
+ *
+ * TỐI ƯU TỐC ĐỘ: các hàm lấy danh sách hàng đợi (layDanhSachQuay1,
+ * quay2_getQueue, quay3_getQueue, quay4_getQueue) được lưu tạm
+ * (cache) trong 4 giây để giảm số lần phải quét lại toàn bộ Sheet khi
+ * nhiều màn hình cùng tự làm mới liên tục. Cache tự xoá ngay khi có
+ * thao tác ghi dữ liệu thật (xác nhận, nhận xử lý, hoàn tất...) để
+ * đảm bảo luôn thấy đúng dữ liệu mới nhất.
+ *
+ * Trang Admin (thống kê) đã TÁCH RIÊNG sang project khác, project này
+ * không còn phục vụ ?page=admin nữa.
+ */
 
-<h2>Đăng ký thông tin tân sinh viên - Khóa 2026</h2>
-<form id="f">
-  <label>Anh/chị nộp hồ sơ cho ai? *</label>
-  <div class="radio-group">
-    <label><input type="radio" name="nguoinop" value="banthan" checked required> Bản thân</label>
-    <label><input type="radio" name="nguoinop" value="nguoithan" required> Người thân</label>
-  </div>
+const SHEET_ID = '10eG9J91pj7ij9c4q9Rc1r2R-o09GCYtGtcfde7CdkjU';
+const SHEET_NAME = 'TiepNhan_3Quay';
 
-  <div id="nguoithanBox" style="display:none;">
-    <label>Thông tin người nộp hồ sơ (họ tên, quan hệ với sinh viên) *</label>
-    <input id="nguoithan_info" placeholder="VD: Nguyễn Văn A - Bố">
-  </div>
+const HEADERS = [
+  'Timestamp', 'MSSV', 'HoTen', 'MaHoSo', 'Nganh', 'CCCD', 'SDT', 'Email',
+  'PH_HoTen', 'PH_SDT',
+  'TrangThai',
+  'NhanVien_Quay1',
+  'GhiChu_Quay2', 'NhanVien_Quay2',
+  'NhanVien_Quay3', 'HoanTatLuc',
+  'GhiChu_Quay3',
+  'NguoiNop', 'ThongTinNguoiNop',
+  'ThieuHoSo_Quay2',
+  'DangXuLyBoi_Quay2', 'ThoiGianNhanXuLy_Quay2'
+];
 
-  <label>Mã số sinh viên (MSSV) *</label>
-  <input id="mssv" required>
+const COL = {};
+HEADERS.forEach(function (h, i) { COL[h] = i + 1; });
 
-  <label>Họ và tên *</label>
-  <input id="hoten" required>
+// Các giá trị trạng thái - đi qua đúng thứ tự này
+const TT = {
+  CHO_XAC_NHAN_Q1: 'CHO_XAC_NHAN_Q1', // vừa quét QR, đang chờ Quầy 1 xác nhận
+  CHO_NOP_HS_Q2: 'CHO_NOP_HS_Q2',     // Quầy 1 đã mời, đang chờ nộp hồ sơ ở Quầy 2
+  CHO_CHUP_ANH_Q3: 'CHO_CHUP_ANH_Q3', // Quầy 2 xử lý xong, đang chờ chụp ảnh ở Quầy 3
+  HOAN_TAT: 'HOAN_TAT',               // Quầy 3 đã chụp ảnh + trả biên nhận
+  BO_QUA: 'BO_QUA'                    // Quầy 1 bấm "Bỏ qua" - không tiếp tục quy trình
+};
 
-  <label>Mã số hồ sơ *</label>
-  <input id="mahoso" required value="HIU">
+// ---------------------------------------------------------------
+// CHẾ ĐỘ 1 QUẦY (áp dụng từ 06/10/2026)
+// ---------------------------------------------------------------
+const CHE_DO_1_QUAY = true; // false = quay lại mô hình 3 quầy như cũ
+const NGAY_BAT_DAU_1_QUAY = new Date('2026-10-06T00:00:00+07:00'); // 0h ngày 06/10/2026 giờ Việt Nam
+const NHAN_VIEN_TU_DONG = 'TU_DONG_1_QUAY'; // ghi vào cột NhanVien_Quay1/2/3 để dễ lọc
 
-  <label>Ngành trúng tuyển *</label>
-  <select id="nganh" required>
-    <option value="">-- Chọn ngành --</option>
-    <option value="Y khoa">Y khoa</option>
-    <option value="Y khoa (Tiếng Anh)">Y khoa (Tiếng Anh)</option>
-    <option value="Răng - Hàm - Mặt">Răng - Hàm - Mặt</option>
-    <option value="Răng - Hàm - Mặt (Tiếng Anh)">Răng - Hàm - Mặt (Tiếng Anh)</option>
-    <option value="Y học cổ truyền">Y học cổ truyền</option>
-    <option value="Dược học">Dược học</option>
-    <option value="Dược học (Tiếng Anh)">Dược học (Tiếng Anh)</option>
-    <option value="Kỹ thuật y sinh">Kỹ thuật y sinh</option>
-    <option value="Kỹ thuật phục hồi chức năng">Kỹ thuật phục hồi chức năng</option>
-    <option value="Kỹ thuật xét nghiệm y học">Kỹ thuật xét nghiệm y học</option>
-    <option value="Kỹ thuật hình ảnh y học">Kỹ thuật hình ảnh y học</option>
-    <option value="Điều dưỡng">Điều dưỡng</option>
-    <option value="Điều dưỡng (Tiếng Anh)">Điều dưỡng (Tiếng Anh)</option>
-    <option value="Hộ sinh">Hộ sinh</option>
-    <option value="Công nghệ thẩm mỹ">Công nghệ thẩm mỹ</option>
-    <option value="Dinh dưỡng">Dinh dưỡng</option>
-    <option value="Y tế công cộng">Y tế công cộng</option>
-    <option value="Kỹ thuật phục hình răng (*)">Kỹ thuật phục hình răng (*)</option>
-    <option value="Y học dự phòng (*)">Y học dự phòng (*)</option>
-    <option value="Digital Marketing">Digital Marketing</option>
-    <option value="Digital Marketing (Tiếng Anh)">Digital Marketing (Tiếng Anh)</option>
-    <option value="Thương mại điện tử">Thương mại điện tử</option>
-    <option value="Quản trị kinh doanh">Quản trị kinh doanh</option>
-    <option value="Quản trị sự kiện">Quản trị sự kiện</option>
-    <option value="Quản trị khách sạn">Quản trị khách sạn</option>
-    <option value="Quản trị dịch vụ du lịch và lữ hành">Quản trị dịch vụ du lịch và lữ hành</option>
-    <option value="Tài chính - Ngân hàng">Tài chính - Ngân hàng</option>
-    <option value="Kế toán">Kế toán</option>
-    <option value="Công nghệ tài chính">Công nghệ tài chính</option>
-    <option value="Kinh doanh quốc tế">Kinh doanh quốc tế</option>
-    <option value="Luật">Luật</option>
-    <option value="Luật kinh tế">Luật kinh tế</option>
-    <option value="Ngôn ngữ Anh">Ngôn ngữ Anh</option>
-    <option value="Ngôn ngữ Nhật">Ngôn ngữ Nhật</option>
-    <option value="Ngôn ngữ Trung Quốc">Ngôn ngữ Trung Quốc</option>
-    <option value="Ngôn ngữ Hàn Quốc">Ngôn ngữ Hàn Quốc</option>
-    <option value="Truyền thông đa phương tiện">Truyền thông đa phương tiện</option>
-    <option value="Quan hệ công chúng">Quan hệ công chúng</option>
-    <option value="Quan hệ quốc tế">Quan hệ quốc tế</option>
-    <option value="Tâm lý học">Tâm lý học</option>
-    <option value="Tâm lý học giáo dục">Tâm lý học giáo dục</option>
-    <option value="Quản lý giáo dục">Quản lý giáo dục</option>
-    <option value="Việt Nam học">Việt Nam học</option>
-    <option value="Kiến trúc">Kiến trúc</option>
-    <option value="Kỹ thuật cơ điện tử">Kỹ thuật cơ điện tử</option>
-    <option value="Logistics và quản lý chuỗi cung ứng">Logistics và quản lý chuỗi cung ứng</option>
-    <option value="Logistics và quản lý chuỗi cung ứng (Tiếng Anh)">Logistics và quản lý chuỗi cung ứng (Tiếng Anh)</option>
-    <option value="Quản lý công nghiệp">Quản lý công nghiệp</option>
-    <option value="Công nghệ thông tin">Công nghệ thông tin</option>
-    <option value="Thiết kế đồ họa">Thiết kế đồ họa</option>
-    <option value="Công nghệ sinh học">Công nghệ sinh học</option>
-  </select>
+function dangApDung1Quay_(thoiDiem) {
+  return CHE_DO_1_QUAY && thoiDiem.getTime() >= NGAY_BAT_DAU_1_QUAY.getTime();
+}
 
-  <label>Số CCCD *</label>
-  <input id="cccd" required maxlength="12" pattern="[0-9]{12}">
+const CLAIM_TIMEOUT_MS = 24 * 60 * 60 * 1000; // 24 giờ - tự nhả nếu CTV quên huỷ
 
-  <label>Số điện thoại *</label>
-  <input id="sdt" required maxlength="11">
+const API_SECRET = 'HIU-K2026-QuayTiepNhan-7Xk2m9'; // mã bí mật - phải khớp với các file .html
 
-  <label>Email cá nhân *</label>
-  <input id="email" type="email" required>
+// ---------------------------------------------------------------
+// CACHE - lưu tạm kết quả hàng đợi trong vài giây để giảm số lần
+// phải quét lại toàn bộ Sheet khi nhiều màn hình cùng tự làm mới.
+// ---------------------------------------------------------------
+const CACHE_TTL_SECONDS = 4; // ngắn hơn chu kỳ tự làm mới (5s) của các trang HTML
+const CACHE_KEYS = ['cache_quay1', 'cache_quay2', 'cache_quay3', 'cache_quay4'];
 
-  <label>Họ tên phụ huynh/người giám hộ *</label>
-  <input id="ph_hoten" required>
-
-  <label>SĐT phụ huynh/người giám hộ *</label>
-  <input id="ph_sdt" required maxlength="11">
-
-  <button type="submit" id="submitBtn">Gửi đăng ký</button>
-</form>
-<div id="msg" style="display:none"></div>
-
-<script>
-const API_URL = "https://script.google.com/macros/s/AKfycbyAkoch5dGeF12mUJpC5swPGaGCfkwUpywant4OYSBQwJGySPFfANWToV67AHvbi2_D/exec";
-const API_KEY = "HIU-K2026-QuayTiepNhan-7Xk2m9";
-var radios = document.querySelectorAll('input[name="nguoinop"]');
-var nguoithanBox = document.getElementById("nguoithanBox");
-var nguoithanInfo = document.getElementById("nguoithan_info");
-var submitBtn = document.getElementById("submitBtn");
-
-// Gửi request có GIỚI HẠN THỜI GIAN CHỜ (20 giây) - nếu quá lâu không có phản hồi
-// (mạng treo, máy bị khóa màn hình...) sẽ tự huỷ và báo lỗi thay vì kẹt mãi mãi.
-// Nếu lần đầu thất bại, tự động thử lại thêm 1 lần sau 2 giây.
-function fetchWithRetry(url, options) {
-  function attempt() {
-    var controller = new AbortController();
-    var timer = setTimeout(function () { controller.abort(); }, 50000);
-    var opts = Object.assign({}, options, { signal: controller.signal });
-    return fetch(url, opts).finally(function () { clearTimeout(timer); });
+function withCache_(key, computeFn) {
+  var cache = CacheService.getScriptCache();
+  var cached = cache.get(key);
+  if (cached) {
+    try {
+      return JSON.parse(cached);
+    } catch (e) {
+      // Cache hỏng/không đọc được -> tính lại bình thường, không ảnh hưởng gì
+    }
   }
-  return attempt().catch(function () {
-    return new Promise(function (resolve) {
-      setTimeout(resolve, 2000);
-    }).then(attempt);
+  var result = computeFn();
+  try {
+    cache.put(key, JSON.stringify(result), CACHE_TTL_SECONDS);
+  } catch (e) {
+    // Dữ liệu quá lớn để cache (hiếm khi xảy ra với danh sách đã giới hạn 50 dòng)
+    // -> bỏ qua, vẫn trả kết quả đúng, chỉ là không được tăng tốc lần này
+  }
+  return result;
+}
+
+function xoaCacheHangDoi_() {
+  CacheService.getScriptCache().removeAll(CACHE_KEYS);
+}
+
+// ---------------------------------------------------------------
+// ĐIỀU HƯỚNG TRANG
+// ---------------------------------------------------------------
+function doGet(e) {
+  // ====== NHÁNH MỚI: trả dữ liệu JSON cho trang web ngoài (GitHub Pages) ======
+  if (e.parameter.action) {
+    if (e.parameter.key !== API_SECRET) {
+      return ContentService
+        .createTextOutput(JSON.stringify({ error: 'Không có quyền truy cập.' }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    var action = e.parameter.action;
+    var result;
+
+    if (action === 'layDanhSachQuay1') {
+      result = layDanhSachQuay1();
+    } else if (action === 'quay2_getQueue') {
+      result = quay2_getQueue();
+    } else if (action === 'quay3_getQueue') {
+      result = quay3_getQueue();
+    } else if (action === 'quay4_getQueue') {
+      result = quay4_getQueue();
+    } else {
+      result = { error: 'Không rõ hành động: ' + action };
+    }
+
+    return ContentService
+      .createTextOutput(JSON.stringify(result))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // ====== NHÁNH CŨ: giữ nguyên 100% như bạn đang có ======
+  var page = (e.parameter.page || '').toString().toLowerCase();
+  var fileMap = {
+    'dangky': 'DangKy',
+    '1': 'Quay1',
+    '2': 'Quay2',
+    '3': 'Quay3'
+  };
+  var file = fileMap[page];
+  if (!file) {
+    return HtmlService.createHtmlOutput(
+      '<p>Thiếu hoặc sai tham số. Dùng: ?page=dangky | 1 | 2 | 3</p>'
+    );
+  }
+
+  return HtmlService.createHtmlOutputFromFile(file)
+    .setTitle('Tiếp nhận hồ sơ TSV')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+// ====== HÀM MỚI: xử lý các yêu cầu GHI dữ liệu từ trang web ngoài ======
+function doPost(e) {
+  var action = e.parameter.action;
+  var data = JSON.parse(e.postData.contents);
+
+  if (data.key !== API_SECRET) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ success: false, message: 'Không có quyền truy cập.' }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  var result;
+  var ACTIONS_GHI_DU_LIEU = [
+    'quay1_confirm', 'quay1_boqua',
+    'quay2_claim', 'quay2_release', 'quay2_complete',
+    'quay3_complete', 'dangky_submit'
+  ];
+
+  if (action === 'quay1_confirm') {
+    result = quay1_confirm(data.mssv, data.nhanvien);
+  } else if (action === 'quay1_boqua') {
+    result = quay1_boqua(data.mssv, data.nhanvien);
+  } else if (action === 'quay2_claim') {
+    result = quay2_claim(data.mssv, data.my);
+  } else if (action === 'quay2_release') {
+    result = quay2_release(data.mssv, data.my);
+  } else if (action === 'quay2_complete') {
+    result = quay2_complete(data.mssv, data.ghichu, data.thieuHoSo, data.my);
+  } else if (action === 'quay3_complete') {
+    result = quay3_complete(data.mssv, data.ghichu, data.nhanvien);
+  } else if (action === 'dangky_submit') {
+    result = dangky_submit(data);
+  } else {
+    result = { error: 'Không rõ hành động: ' + action };
+  }
+
+  // Có thao tác ghi dữ liệu thật -> xoá cache ngay để mọi màn hình
+  // thấy đúng dữ liệu mới nhất ở lần làm mới kế tiếp, không phải đợi hết 4 giây
+  if (ACTIONS_GHI_DU_LIEU.indexOf(action) !== -1) {
+    xoaCacheHangDoi_();
+  }
+
+  return ContentService
+    .createTextOutput(JSON.stringify(result))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+// ---------------------------------------------------------------
+// TIỆN ÍCH DÙNG CHUNG
+// ---------------------------------------------------------------
+function getSheet_() {
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var sheet = ss.getSheetByName(SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(SHEET_NAME);
+    sheet.appendRow(HEADERS);
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+function findRowByMSSV_(sheet, mssv) {
+  var data = sheet.getDataRange().getValues();
+  var target = String(mssv).trim();
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][COL.MSSV - 1]).trim() === target) {
+      return { rowIndex: i + 1, row: data[i] };
+    }
+  }
+  return null;
+}
+
+function rowToObject_(row) {
+  var obj = {};
+  HEADERS.forEach(function (h, idx) { obj[h] = row[idx]; });
+  return obj;
+}
+
+// Chuyển 1 giá trị thành chuỗi ISO ngày giờ 1 cách AN TOÀN.
+// Nếu giá trị rỗng hoặc không phải ngày hợp lệ (ví dụ do gõ tay sai định
+// dạng), trả về '' thay vì làm crash cả hàm đang chạy (vốn có thể ảnh
+// hưởng tới toàn bộ danh sách của 1 quầy, không chỉ riêng dòng bị lỗi).
+function safeIsoString_(value) {
+  if (!value) return '';
+  var d = new Date(value);
+  if (isNaN(d.getTime())) return '';
+  return d.toISOString();
+}
+
+// Lấy danh sách sinh viên đang ở đúng 1 trạng thái, sắp xếp theo thời gian đăng ký
+// (vào trước xử lý trước - FIFO). Kèm thông tin "đang được ai nhận xử lý"
+// (chỉ Quầy 2 dùng) và thông tin "nộp hồ sơ cho ai" (Quầy 2, Quầy 3 hiển thị).
+function getQueueByStatus_(trangThai, limit) {
+  var sheet = getSheet_();
+  var data = sheet.getDataRange().getValues();
+  var result = [];
+  for (var i = 1; i < data.length; i++) {
+    if (data[i][COL.TrangThai - 1] === trangThai) {
+      var ts = data[i][COL.Timestamp - 1];
+      var claimAt = data[i][COL.ThoiGianNhanXuLy_Quay2 - 1];
+      result.push({
+        mssv: data[i][COL.MSSV - 1],
+        hoten: data[i][COL.HoTen - 1],
+        nganh: data[i][COL.Nganh - 1],
+        timestamp: safeIsoString_(ts),
+        claimBy: data[i][COL.DangXuLyBoi_Quay2 - 1] || '',
+        claimAt: safeIsoString_(claimAt),
+        nguoiNop: data[i][COL.NguoiNop - 1] || '',
+        thongTinNguoiNop: data[i][COL.ThongTinNguoiNop - 1] || ''
+      });
+    }
+  }
+  result.sort(function (a, b) {
+    var ta = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+    var tb = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+    return ta - tb;
+  });
+  if (limit) result = result.slice(0, limit);
+  return result;
+}
+
+// ---------------------------------------------------------------
+// TRANG "DANG KY" - sinh viên/CTV điền sau khi quét QR
+// Dùng LockService để đảm bảo không bị ghi trùng nếu gửi 2 lần
+// gần như cùng lúc (ví dụ do lỗi mạng làm sinh viên bấm gửi lại).
+// Từ 06/10/2026 (CHE_DO_1_QUAY): ghi thẳng HOAN_TAT, không qua Quầy 1-2-3.
+// ---------------------------------------------------------------
+function dangky_submit(data) {
+  if (data.nguoinop !== 'banthan' && data.nguoinop !== 'nguoithan') {
+    return { success: false, message: 'Vui lòng chọn người nộp hồ sơ.' };
+  }
+  if (data.nguoinop === 'nguoithan' && (!data.nguoithan_info || !data.nguoithan_info.trim())) {
+    return { success: false, message: 'Vui lòng nhập thông tin người nộp hồ sơ.' };
+  }
+  if (!data.mssv || !/^[0-9A-Za-z]{4,15}$/.test(data.mssv)) {
+    return { success: false, message: 'MSSV không hợp lệ.' };
+  }
+  if (!data.hoten || !data.hoten.trim()) {
+    return { success: false, message: 'Vui lòng nhập họ và tên.' };
+  }
+  if (!data.mahoso || !/^HIU[0-9]+$/.test(data.mahoso)) {
+    return { success: false, message: 'Mã hồ sơ phải bắt đầu bằng HIU, theo sau là dãy số viết liền.' };
+  }
+  if (!data.nganh || !data.nganh.trim()) {
+    return { success: false, message: 'Vui lòng chọn ngành trúng tuyển.' };
+  }
+  if (!data.cccd || !/^[0-9]{12}$/.test(data.cccd)) {
+    return { success: false, message: 'CCCD phải đủ 12 số.' };
+  }
+  if (!data.sdt || !/^[0-9]{9,11}$/.test(data.sdt)) {
+    return { success: false, message: 'Số điện thoại không hợp lệ.' };
+  }
+  if (!data.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) {
+    return { success: false, message: 'Email không hợp lệ.' };
+  }
+  if (!data.ph_hoten || !data.ph_hoten.trim()) {
+    return { success: false, message: 'Vui lòng nhập họ tên phụ huynh/người giám hộ.' };
+  }
+  if (!data.ph_sdt || !/^[0-9]{9,11}$/.test(data.ph_sdt)) {
+    return { success: false, message: 'SĐT phụ huynh/người giám hộ không hợp lệ.' };
+  }
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(15000); // chờ tối đa 15 giây nếu có người khác đang ghi cùng lúc
+
+  try {
+    var sheet = getSheet_();
+    var trung = findRowByMSSV_(sheet, data.mssv);
+    if (trung) {
+      return { success: false, message: 'MSSV ' + data.mssv + ' đã đăng ký trước đó. Vui lòng báo cán bộ tiếp nhận nếu cần sửa thông tin.' };
+    }
+    var now = new Date();
+    var motQuay = dangApDung1Quay_(now);
+
+    var row = [];
+    row[COL.Timestamp - 1] = now;
+    row[COL.MSSV - 1] = data.mssv.trim();
+    row[COL.HoTen - 1] = data.hoten.trim();
+    row[COL.MaHoSo - 1] = data.mahoso;
+    row[COL.Nganh - 1] = data.nganh.trim();
+    row[COL.CCCD - 1] = data.cccd;
+    row[COL.SDT - 1] = data.sdt;
+    row[COL.Email - 1] = data.email.trim();
+    row[COL.PH_HoTen - 1] = data.ph_hoten.trim();
+    row[COL.PH_SDT - 1] = data.ph_sdt;
+    row[COL.NguoiNop - 1] = data.nguoinop;
+    row[COL.ThongTinNguoiNop - 1] = data.nguoinop === 'nguoithan' ? data.nguoithan_info.trim() : '';
+
+    if (motQuay) {
+      // Chế độ 1 quầy: ghi nhận là xong, các quầy còn lại coi như hoàn tất
+      row[COL.TrangThai - 1] = TT.HOAN_TAT;
+      row[COL.NhanVien_Quay1 - 1] = NHAN_VIEN_TU_DONG;
+      row[COL.NhanVien_Quay2 - 1] = NHAN_VIEN_TU_DONG;
+      row[COL.NhanVien_Quay3 - 1] = NHAN_VIEN_TU_DONG;
+      row[COL.HoanTatLuc - 1] = now;
+    } else {
+      row[COL.TrangThai - 1] = TT.CHO_XAC_NHAN_Q1;
+    }
+
+    // Đảm bảo dòng đủ 22 cột (tránh ô "undefined" ở các cột trống)
+    for (var c = 0; c < HEADERS.length; c++) {
+      if (row[c] === undefined) row[c] = '';
+    }
+
+    sheet.appendRow(row);
+    return {
+      success: true,
+      message: motQuay
+        ? 'Đăng ký thành công. Thông tin của sinh viên ' + data.hoten.trim() + ' đã được ghi nhận.'
+        : 'Đăng ký thành công. Mời chờ CTV Quầy 1 gọi tên xác nhận.'
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// ---------------------------------------------------------------
+// CHẠY TAY 1 LẦN (không bắt buộc): chuyển các hồ sơ đăng ký TỪ 06/10
+// (trước lúc Deploy bản mới) đang còn kẹt ở Quầy 1/2/3 sang HOAN_TAT.
+// Hồ sơ trước 06/10 và hồ sơ BO_QUA KHÔNG bị đụng tới.
+// Cách chạy: trong Apps Script chọn hàm này ở thanh trên cùng -> bấm "Chạy".
+// ---------------------------------------------------------------
+function chuyenHoanTat_TuNgay0610() {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var sheet = getSheet_();
+    var data = sheet.getDataRange().getValues();
+    var dangCho = [TT.CHO_XAC_NHAN_Q1, TT.CHO_NOP_HS_Q2, TT.CHO_CHUP_ANH_Q3];
+    var soDong = 0;
+
+    for (var i = 1; i < data.length; i++) {
+      var ts = data[i][COL.Timestamp - 1];
+      var tt = String(data[i][COL.TrangThai - 1]).trim();
+      if (!ts || dangCho.indexOf(tt) === -1) continue;
+      var d = new Date(ts);
+      if (isNaN(d.getTime()) || !dangApDung1Quay_(d)) continue;
+
+      var r = i + 1;
+      sheet.getRange(r, COL.TrangThai).setValue(TT.HOAN_TAT);
+      if (!data[i][COL.NhanVien_Quay1 - 1]) sheet.getRange(r, COL.NhanVien_Quay1).setValue(NHAN_VIEN_TU_DONG);
+      if (!data[i][COL.NhanVien_Quay2 - 1]) sheet.getRange(r, COL.NhanVien_Quay2).setValue(NHAN_VIEN_TU_DONG);
+      if (!data[i][COL.NhanVien_Quay3 - 1]) sheet.getRange(r, COL.NhanVien_Quay3).setValue(NHAN_VIEN_TU_DONG);
+      sheet.getRange(r, COL.HoanTatLuc).setValue(new Date());
+      sheet.getRange(r, COL.DangXuLyBoi_Quay2).setValue('');
+      sheet.getRange(r, COL.ThoiGianNhanXuLy_Quay2).setValue('');
+      soDong++;
+    }
+
+    xoaCacheHangDoi_();
+    Logger.log('Đã chuyển ' + soDong + ' hồ sơ (đăng ký từ 06/10) sang HOAN_TAT.');
+    return soDong;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// ---------------------------------------------------------------
+// QUẦY 1: quét QR đăng ký, kiểm tra Phiếu xác nhận trúng tuyển,
+// hướng dẫn điền Phiếu thông tin gia đình -> mời qua Quầy 2
+// Có thêm nút "Bỏ qua" (quay1_boqua) để loại hồ sơ khỏi quy trình.
+// ---------------------------------------------------------------
+function layDanhSachQuay1() {
+  try {
+    return withCache_('cache_quay1', function () {
+      return getQueueByStatus_(TT.CHO_XAC_NHAN_Q1, 50);
+    });
+  } catch (err) {
+    return [{ mssv: 'LỖI', hoten: err.message, nganh: err.stack || '' }];
+  }
+}
+
+function quay1_confirm(mssv, nhanvien) {
+  var sheet = getSheet_();
+  var found = findRowByMSSV_(sheet, mssv);
+  if (!found) return { success: false, message: 'Không tìm thấy MSSV.' };
+  var obj = rowToObject_(found.row);
+  if (obj.TrangThai !== TT.CHO_XAC_NHAN_Q1) {
+    return { success: false, message: 'Sinh viên này đã được xử lý (có thể do CTV khác vừa bấm).' };
+  }
+  var r = found.rowIndex;
+  sheet.getRange(r, COL.TrangThai).setValue(TT.CHO_NOP_HS_Q2);
+  sheet.getRange(r, COL.NhanVien_Quay1).setValue(nhanvien || '');
+  return { success: true, message: 'Đã xác nhận. Mời sinh viên ' + obj.HoTen + ' sang Quầy 2.' };
+}
+
+function quay1_boqua(mssv, nhanvien) {
+  var sheet = getSheet_();
+  var found = findRowByMSSV_(sheet, mssv);
+  if (!found) return { success: false, message: 'Không tìm thấy MSSV.' };
+  var obj = rowToObject_(found.row);
+  if (obj.TrangThai !== TT.CHO_XAC_NHAN_Q1) {
+    return { success: false, message: 'Sinh viên này đã được xử lý (có thể do CTV khác vừa bấm).' };
+  }
+  var r = found.rowIndex;
+  sheet.getRange(r, COL.TrangThai).setValue(TT.BO_QUA);
+  sheet.getRange(r, COL.NhanVien_Quay1).setValue(nhanvien || '');
+  return { success: true, message: 'Đã bỏ qua hồ sơ của ' + obj.HoTen + '.' };
+}
+
+// ---------------------------------------------------------------
+// QUẦY 2: nhận hồ sơ giấy, kiểm tra, scan, chuyển nội bộ nhập ASC
+// + in biên nhận -> mời sinh viên ra khu vực chờ chụp ảnh Quầy 3
+// Có cơ chế "Nhận xử lý" (claim) để nhiều CTV dùng chung link không
+// bị giẫm chân lên nhau khi cùng thao tác 1 sinh viên.
+// ---------------------------------------------------------------
+function quay2_getQueue() {
+  return withCache_('cache_quay2', function () {
+    return getQueueByStatus_(TT.CHO_NOP_HS_Q2, 50);
   });
 }
 
-function toggleNguoiThan() {
-  var checked = document.querySelector('input[name="nguoinop"]:checked').value;
-  if (checked === "nguoithan") {
-    nguoithanBox.style.display = "block";
-    nguoithanInfo.setAttribute("required", "required");
-  } else {
-    nguoithanBox.style.display = "none";
-    nguoithanInfo.removeAttribute("required");
+function quay2_claim(mssv, nhanvien) {
+  if (!nhanvien || !nhanvien.trim()) {
+    return { success: false, message: 'Vui lòng nhập tên CTV trước khi nhận xử lý.' };
   }
-}
-radios.forEach(function (r) { r.addEventListener("change", toggleNguoiThan); });
-toggleNguoiThan();
-
-var mahosoInput = document.getElementById("mahoso");
-mahosoInput.addEventListener("input", function () {
-  var digits = mahosoInput.value.toUpperCase().replace(/^HIU/, "").replace(/[^0-9]/g, "");
-  mahosoInput.value = "HIU" + digits;
-});
-mahosoInput.addEventListener("focus", function () {
-  var v = mahosoInput.value;
-  try {
-    mahosoInput.setSelectionRange(v.length, v.length);
-  } catch (err) {
-    // Một số trình duyệt di động không hỗ trợ dòng này ở vài thời điểm - bỏ qua, không ảnh hưởng gì
+  var sheet = getSheet_();
+  var found = findRowByMSSV_(sheet, mssv);
+  if (!found) return { success: false, message: 'Không tìm thấy MSSV.' };
+  var obj = rowToObject_(found.row);
+  if (obj.TrangThai !== TT.CHO_NOP_HS_Q2) {
+    return { success: false, message: 'Sinh viên này đã được xử lý (có thể do CTV khác vừa bấm).' };
   }
-});
-
-function showMsg(text, cls) {
-  var msg = document.getElementById("msg");
-  msg.style.display = "block";
-  msg.className = cls;
-  msg.textContent = text;
+  var claimBy = obj.DangXuLyBoi_Quay2;
+  var claimAt = obj.ThoiGianNhanXuLy_Quay2;
+  var isStale = !claimAt || (new Date() - new Date(claimAt)) > CLAIM_TIMEOUT_MS;
+  if (claimBy && claimBy !== nhanvien && !isStale) {
+    return { success: false, message: 'Hồ sơ này đang được ' + claimBy + ' xử lý.' };
+  }
+  var r = found.rowIndex;
+  sheet.getRange(r, COL.DangXuLyBoi_Quay2).setValue(nhanvien);
+  sheet.getRange(r, COL.ThoiGianNhanXuLy_Quay2).setValue(new Date());
+  return { success: true, message: 'Bạn đã nhận xử lý hồ sơ của ' + obj.HoTen + '.' };
 }
 
-document.getElementById("f").addEventListener("submit", function (e) {
-  e.preventDefault();
-
-  var mahoso = document.getElementById("mahoso").value.trim();
-  if (!/^HIU[0-9]+$/.test(mahoso)) {
-    showMsg("Mã hồ sơ phải bắt đầu bằng HIU, theo sau là dãy số viết liền, không có khoảng trắng.", "err");
-    return;
+function quay2_release(mssv, nhanvien) {
+  var sheet = getSheet_();
+  var found = findRowByMSSV_(sheet, mssv);
+  if (!found) return { success: false, message: 'Không tìm thấy MSSV.' };
+  var obj = rowToObject_(found.row);
+  if (obj.DangXuLyBoi_Quay2 && obj.DangXuLyBoi_Quay2 !== nhanvien) {
+    return { success: false, message: 'Bạn không phải người đang xử lý hồ sơ này.' };
   }
+  var r = found.rowIndex;
+  sheet.getRange(r, COL.DangXuLyBoi_Quay2).setValue('');
+  sheet.getRange(r, COL.ThoiGianNhanXuLy_Quay2).setValue('');
+  return { success: true, message: 'Đã huỷ nhận xử lý.' };
+}
 
-  var nguoinop = document.querySelector('input[name="nguoinop"]:checked').value;
-  var data = {
-    nguoinop: nguoinop,
-    nguoithan_info: nguoinop === "nguoithan" ? nguoithanInfo.value.trim() : "",
-    mssv: document.getElementById("mssv").value.trim(),
-    hoten: document.getElementById("hoten").value.trim(),
-    mahoso: mahoso,
-    nganh: document.getElementById("nganh").value.trim(),
-    cccd: document.getElementById("cccd").value.trim(),
-    sdt: document.getElementById("sdt").value.trim(),
-    email: document.getElementById("email").value.trim(),
-    ph_hoten: document.getElementById("ph_hoten").value.trim(),
-    ph_sdt: document.getElementById("ph_sdt").value.trim(),
-    key: API_KEY
-  };
+function quay2_complete(mssv, ghiChu, thieuHoSo, nhanvien) {
+  var sheet = getSheet_();
+  var found = findRowByMSSV_(sheet, mssv);
+  if (!found) return { success: false, message: 'Không tìm thấy MSSV.' };
+  var obj = rowToObject_(found.row);
+  if (obj.TrangThai !== TT.CHO_NOP_HS_Q2) {
+    return { success: false, message: 'Sinh viên này đã được xử lý (có thể do CTV khác vừa bấm).' };
+  }
+  var r = found.rowIndex;
+  sheet.getRange(r, COL.TrangThai).setValue(TT.CHO_CHUP_ANH_Q3);
+  sheet.getRange(r, COL.GhiChu_Quay2).setValue(ghiChu || '');
+  sheet.getRange(r, COL.ThieuHoSo_Quay2).setValue((thieuHoSo || []).join(', '));
+  sheet.getRange(r, COL.NhanVien_Quay2).setValue(nhanvien || '');
+  sheet.getRange(r, COL.DangXuLyBoi_Quay2).setValue('');
+  sheet.getRange(r, COL.ThoiGianNhanXuLy_Quay2).setValue('');
+  return { success: true, message: 'Đã xử lý xong hồ sơ của ' + obj.HoTen + '. Mời sinh viên ra khu chờ chụp ảnh Quầy 3.' };
+}
 
-  submitBtn.disabled = true;
-  submitBtn.textContent = "Đang gửi... vui lòng không tắt hoặc rời khỏi trang";
-  showMsg("Đang gửi đăng ký, vui lòng đợi...", "warn");
+// ---------------------------------------------------------------
+// QUẦY 3: gọi tên, chụp ảnh thẻ, trả biên nhận -> hoàn tất
+// ---------------------------------------------------------------
+function quay3_getQueue() {
+  return withCache_('cache_quay3', function () {
+    return getQueueByStatus_(TT.CHO_CHUP_ANH_Q3, 50);
+  });
+}
 
-  fetchWithRetry(API_URL + "?action=dangky_submit", {
-    method: "POST",
-    headers: { "Content-Type": "text/plain;charset=utf-8" },
-    body: JSON.stringify(data)
-  })
-    .then(function (response) { return response.json(); })
-    .then(function (res) {
-      if (res.success) {
-        showMsg("Sinh viên đăng ký thành công, đợi Quầy 1 gọi tên.", "ok");
-        document.getElementById("f").reset();
-        document.getElementById("mahoso").value = "HIU";
-        toggleNguoiThan();
-      } else {
-        showMsg(res.message, "err");
+function quay3_complete(mssv, ghiChu, nhanvien) {
+  var sheet = getSheet_();
+  var found = findRowByMSSV_(sheet, mssv);
+  if (!found) return { success: false, message: 'Không tìm thấy MSSV.' };
+  var obj = rowToObject_(found.row);
+  if (obj.TrangThai !== TT.CHO_CHUP_ANH_Q3) {
+    return { success: false, message: 'Sinh viên này đã được xử lý (có thể do CTV khác vừa bấm).' };
+  }
+  var r = found.rowIndex;
+  sheet.getRange(r, COL.TrangThai).setValue(TT.HOAN_TAT);
+  sheet.getRange(r, COL.NhanVien_Quay3).setValue(nhanvien || '');
+  sheet.getRange(r, COL.GhiChu_Quay3).setValue(ghiChu || '');
+  sheet.getRange(r, COL.HoanTatLuc).setValue(new Date());
+  return { success: true, message: obj.HoTen + ' đã hoàn tất toàn bộ quy trình.' };
+}
+
+// ---------------------------------------------------------------
+// QUẦY 4 (chỉ xem): hiển thị các hồ sơ đã hoàn tất (Quầy 3 đã
+// chụp ảnh + trả biên nhận, hoặc đăng ký theo chế độ 1 quầy).
+// Không có thao tác, chỉ để theo dõi.
+// ---------------------------------------------------------------
+function quay4_getQueue() {
+  return withCache_('cache_quay4', function () {
+    var sheet = getSheet_();
+    var data = sheet.getDataRange().getValues();
+    var result = [];
+    for (var i = 1; i < data.length; i++) {
+      if (data[i][COL.TrangThai - 1] === TT.HOAN_TAT) {
+        var hoanTat = data[i][COL.HoanTatLuc - 1];
+        result.push({
+          mssv: data[i][COL.MSSV - 1],
+          hoten: data[i][COL.HoTen - 1],
+          nganh: data[i][COL.Nganh - 1],
+          hoanTatLuc: safeIsoString_(hoanTat),
+          nguoiNop: data[i][COL.NguoiNop - 1] || '',
+          thongTinNguoiNop: data[i][COL.ThongTinNguoiNop - 1] || ''
+        });
       }
-    })
-    .catch(function (err) {
-      showMsg("Không nhận được phản hồi từ hệ thống (có thể do mạng yếu hoặc quá thời gian chờ). Hồ sơ CÓ THỂ đã được lưu - vui lòng báo CTV Quầy 1 kiểm tra MSSV " + data.mssv + " trước khi gửi lại, để tránh đăng ký trùng.", "err");
-    })
-    .finally(function () {
-      submitBtn.disabled = false;
-      submitBtn.textContent = "Gửi đăng ký";
+    }
+    result.sort(function (a, b) {
+      var ta = a.hoanTatLuc ? new Date(a.hoanTatLuc).getTime() : 0;
+      var tb = b.hoanTatLuc ? new Date(b.hoanTatLuc).getTime() : 0;
+      return tb - ta;
     });
-});
-</script>
+    return result.slice(0, 30);
+  });
+}
